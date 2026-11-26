@@ -86,12 +86,54 @@ jobs:
         distribution: 'temurin'
         java-version: '21'
 
-    - name: Decode Keystore
-      uses: timheuer/base64-to-file@v2.0.0
-      id: android_keystore
+    - name: Restore generated keystore (if any)
+      id: ks_cache
+      uses: actions/cache/restore@v6
       with:
-        fileName: "android_keystore.jks"
-        encodedString: ${{ secrets.APP_KEYSTORE_BASE64 }}
+        path: ${{ runner.temp }}/ks
+        key: matixnet-generated-keystore-v1
+
+    - name: Prepare Keystore
+      id: android_keystore
+      env:
+        KS_B64: ${{ secrets.APP_KEYSTORE_BASE64 }}
+        S_STORE_PASS: ${{ secrets.APP_KEYSTORE_PASSWORD }}
+        S_ALIAS: ${{ secrets.APP_KEYSTORE_ALIAS }}
+        S_KEY_PASS: ${{ secrets.APP_KEY_PASSWORD }}
+      run: |
+        mkdir -p "$RUNNER_TEMP/ks"
+        KS_FILE="$RUNNER_TEMP/ks/android_keystore.jks"
+        GENERATED=false
+
+        if [ -n "$KS_B64" ] && [ -n "$S_STORE_PASS" ] && [ -n "$S_ALIAS" ] && [ -n "$S_KEY_PASS" ]; then
+          echo "Using keystore from GitHub Secrets"
+          printf '%s' "$KS_B64" | base64 -d > "$KS_FILE"
+          STORE_PASS="$S_STORE_PASS"; KEY_ALIAS="$S_ALIAS"; KEY_PASS="$S_KEY_PASS"
+        else
+          echo "Secrets are not set -> using a self-generated keystore"
+          STORE_PASS="matixnet123"; KEY_ALIAS="matixnet"; KEY_PASS="matixnet123"
+          if [ ! -f "$KS_FILE" ]; then
+            keytool -genkeypair -noprompt \
+              -keystore "$KS_FILE" -storetype PKCS12 \
+              -alias "$KEY_ALIAS" -keyalg RSA -keysize 2048 -validity 36500 \
+              -storepass "$STORE_PASS" -keypass "$KEY_PASS" \
+              -dname "CN=MatixNet, OU=Matix, O=Matix, C=IR"
+            GENERATED=true
+          fi
+        fi
+
+        echo "generated=$GENERATED" >> "$GITHUB_OUTPUT"
+        echo "SIGN_FILE=$KS_FILE" >> "$GITHUB_ENV"
+        echo "SIGN_STORE_PASS=$STORE_PASS" >> "$GITHUB_ENV"
+        echo "SIGN_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
+        echo "SIGN_KEY_PASS=$KEY_PASS" >> "$GITHUB_ENV"
+
+    - name: Save generated keystore
+      if: steps.android_keystore.outputs.generated == 'true'
+      uses: actions/cache/save@v6
+      with:
+        path: ${{ runner.temp }}/ks
+        key: matixnet-generated-keystore-v1
 
     - name: Build APK
       run: |
@@ -99,8 +141,12 @@ jobs:
         echo "sdk.dir=${ANDROID_HOME}" > local.properties
         chmod 755 gradlew
         ./gradlew licenseFdroidReleaseReport
-        ./gradlew assembleRelease -Pandroid.injected.signing.store.file=${{ steps.android_keystore.outputs.filePath }} -Pandroid.injected.signing.store.password=${{ secrets.APP_KEYSTORE_PASSWORD }} -Pandroid.injected.signing.key.alias=${{ secrets.APP_KEYSTORE_ALIAS }} -Pandroid.injected.signing.key.password=${{ secrets.APP_KEY_PASSWORD }}
-    
+        ./gradlew assembleRelease \
+          -Pandroid.injected.signing.store.file="$SIGN_FILE" \
+          -Pandroid.injected.signing.store.password="$SIGN_STORE_PASS" \
+          -Pandroid.injected.signing.key.alias="$SIGN_ALIAS" \
+          -Pandroid.injected.signing.key.password="$SIGN_KEY_PASS"
+
     - name: Upload arm64-v8a APK
       uses: actions/upload-artifact@v7
       if: ${{  success() }}
