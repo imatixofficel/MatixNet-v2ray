@@ -9,7 +9,18 @@ import android.view.KeyEvent
 import androidx.activity.compose.BackHandler
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import com.v2ray.ang.ui.compose.MatixIntro
+import com.v2ray.ang.ui.compose.MatixIntroState
+import com.v2ray.ang.ui.compose.matixBackdrop
+import com.v2ray.ang.ui.welcome.WelcomeActivity
 import androidx.lifecycle.lifecycleScope
 import com.v2ray.ang.AngApplication
 import com.v2ray.ang.AppConfig
@@ -22,10 +33,13 @@ import com.v2ray.ang.extension.toast
 import com.v2ray.ang.extension.toastError
 import com.v2ray.ang.extension.toastSuccess
 import com.v2ray.ang.handler.AngConfigManager
+import com.v2ray.ang.handler.MatixAppSettings
 import com.v2ray.ang.handler.MmkvManager
 import com.v2ray.ang.handler.SettingsChangeManager
 import com.v2ray.ang.handler.SettingsManager
+import com.v2ray.ang.handler.SubscriptionInfoParser
 import com.v2ray.ang.ui.AboutActivity
+import com.v2ray.ang.ui.MatixScannerActivity
 import com.v2ray.ang.ui.backup.BackupActivity
 import com.v2ray.ang.ui.base.HelperBaseComponentActivity
 import com.v2ray.ang.ui.checkupdate.CheckUpdateActivity
@@ -33,6 +47,7 @@ import com.v2ray.ang.ui.logcat.LogcatActivity
 import com.v2ray.ang.ui.perappproxy.PerAppProxyActivity
 import com.v2ray.ang.ui.routing.RoutingSettingActivity
 import com.v2ray.ang.ui.server.ProfileEditorResult
+import com.v2ray.ang.ui.server.ServerAetherActivity
 import com.v2ray.ang.ui.server.ServerCustomConfigActivity
 import com.v2ray.ang.ui.server.ServerGroupActivity
 import com.v2ray.ang.ui.server.ServerHttpActivity
@@ -105,9 +120,24 @@ abstract class BaseMainActivity : HelperBaseComponentActivity() {
             finish()
             return
         }
+        // Matix net: a first launch with no subscription and no server opens the welcome screen.
+        if (!MatixAppSettings.welcomeDone() && !hasAnyServer() &&
+            !intent.getBooleanExtra(AppConfig.EXTRA_REFRESH_AFTER_IMPORT, false)
+        ) {
+            forwardingToTv = true
+            startActivity(Intent(this, WelcomeActivity::class.java))
+            finish()
+            return
+        }
         mainViewModel.onAction(MainAction.Initialize)
 
         checkAndRequestPermission(PermissionType.POST_NOTIFICATIONS) {}
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // The service can have gone away while the screen was not shown, without a word if its process died.
+        mainViewModel.onAction(MainAction.RefreshServiceState)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -117,11 +147,25 @@ abstract class BaseMainActivity : HelperBaseComponentActivity() {
         }
     }
 
+    // Matix net: whether a subscription or a server already exists, read from storage, never from the screen.
+    private fun hasAnyServer(): Boolean = try {
+        MmkvManager.decodeSubscriptions().isNotEmpty() || MmkvManager.decodeServerList("").isNotEmpty()
+    } catch (e: Exception) {
+        LogUtil.e(AppConfig.TAG, "Could not tell whether a server exists", e)
+        true
+    }
+
     @Composable
     override fun ScreenContent() {
         if (forwardingToTv) return
         BackHandler { moveTaskToBack(false) }
-        MainContent(mainViewModel, ::handleMainAction, ::navigateTo)
+        var introDone by remember { mutableStateOf(MatixIntroState.shown) }
+        Box(Modifier.fillMaxSize().matixBackdrop()) {
+            MainContent(mainViewModel, ::handleMainAction, ::navigateTo)
+            if (!introDone) {
+                MatixIntro(onFinished = { MatixIntroState.shown = true; introDone = true })
+            }
+        }
     }
 
     @Composable
@@ -149,6 +193,12 @@ abstract class BaseMainActivity : HelperBaseComponentActivity() {
             is MainAction.EditServer -> editServer(action.guid, action.profile)
             is MainAction.ShareClipboard -> shareToClipboard(action.guid)
             is MainAction.ShareFullContent -> shareFullContentAsync(action.guid)
+            is MainAction.OpenSubscriptionLink -> openSubscriptionLink(action.url)
+            is MainAction.CopyDonationAddress -> copyDonationAddress(action.address)
+            MainAction.OpenAuthorTelegram -> Utils.openUri(this, AppConfig.AUTHOR_TELEGRAM_URL)
+            MainAction.BuySubscription -> Utils.openUri(this, AppConfig.MATIX_BOT_URL)
+            MainAction.ToggleTheme -> MatixAppSettings.toggleTheme(this)
+            MainAction.ToggleLanguage -> MatixAppSettings.toggleLanguage()
             else -> mainViewModel.onAction(action)
         }
     }
@@ -166,6 +216,18 @@ abstract class BaseMainActivity : HelperBaseComponentActivity() {
         }
     }
 
+    private fun openSubscriptionLink(url: String) {
+        // Links come from a remote panel, so only http(s) and tg:// are ever handed to ACTION_VIEW.
+        val safeUrl = SubscriptionInfoParser.sanitizeLink(url) ?: return
+        Utils.openUri(this, safeUrl)
+    }
+
+    /** PattNG: puts a donation address on the clipboard just as the Donate dialog shows it. */
+    private fun copyDonationAddress(address: String) {
+        Utils.setClipboard(this, address)
+        toastSuccess(R.string.toast_success)
+    }
+
     private fun navigateTo(destination: MainDestination) {
         val intent = when (destination) {
             MainDestination.Subscriptions -> Intent(this, SubSettingActivity::class.java)
@@ -177,11 +239,8 @@ abstract class BaseMainActivity : HelperBaseComponentActivity() {
             MainDestination.CheckUpdate -> Intent(this, CheckUpdateActivity::class.java)
             MainDestination.BackupRestore -> Intent(this, BackupActivity::class.java)
             MainDestination.About -> Intent(this, AboutActivity::class.java)
-            MainDestination.Promotion -> {
-                Utils.openUri(
-                    this,
-                    "${Utils.decode(AppConfig.APP_PROMOTION_URL)}?t=${System.currentTimeMillis()}"
-                )
+            MainDestination.TelegramChannel -> {
+                Utils.openUri(this, AppConfig.TG_CHANNEL_URL)
                 return
             }
         }
@@ -191,6 +250,9 @@ abstract class BaseMainActivity : HelperBaseComponentActivity() {
     private fun handleFabAction() {
         if (mainViewModel.uiState.value.isRunning) {
             LauncherManager.stopService(this)
+            // A service whose process died takes no stop and answers nothing; asking for its state right
+            // after lets that silence show the screen as stopped instead of leaving it connected.
+            mainViewModel.onAction(MainAction.RefreshServiceState)
         } else {
             requestServiceStart()
         }
@@ -236,6 +298,7 @@ abstract class BaseMainActivity : HelperBaseComponentActivity() {
             EConfigType.WIREGUARD.value -> Intent(this, ServerWireguardActivity::class.java)
             EConfigType.HYSTERIA2.value -> Intent(this, ServerHysteria2Activity::class.java)
             EConfigType.MASQUE.value -> Intent(this, ServerMasqueActivity::class.java)
+            EConfigType.AETHER.value -> Intent(this, ServerAetherActivity::class.java)
             else -> Intent(this, ServerHttpActivity::class.java).apply {
                 putExtra("createConfigType", createConfigType)
             }
@@ -245,12 +308,16 @@ abstract class BaseMainActivity : HelperBaseComponentActivity() {
         profileEditorLauncher.launch(intent)
     }
 
-    private fun importQRcode() {
-        launchQRCodeScanner { scanResult ->
-            if (scanResult != null) {
-                mainViewModel.onAction(MainAction.ImportBatchConfig(scanResult))
-            }
+    // Matix net: the scanner with the rounded frame and the check mark, see MatixScannerActivity.
+    private val scannerLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode != RESULT_OK) return@registerForActivityResult
+            val text = result.data?.getStringExtra(MatixScannerActivity.EXTRA_RESULT)
+            if (!text.isNullOrBlank()) mainViewModel.onAction(MainAction.ImportBatchConfig(text))
         }
+
+    private fun importQRcode() {
+        scannerLauncher.launch(Intent(this, MatixScannerActivity::class.java))
     }
 
     private fun importClipboard() {
@@ -289,6 +356,7 @@ abstract class BaseMainActivity : HelperBaseComponentActivity() {
             EConfigType.WIREGUARD -> ServerWireguardActivity::class.java
             EConfigType.HYSTERIA2 -> ServerHysteria2Activity::class.java
             EConfigType.MASQUE -> ServerMasqueActivity::class.java
+            EConfigType.AETHER -> ServerAetherActivity::class.java
             else -> ServerHttpActivity::class.java
         }
         val intent = Intent(this, activityClass).apply {
@@ -314,7 +382,9 @@ abstract class BaseMainActivity : HelperBaseComponentActivity() {
 class MainActivity : BaseMainActivity() {
     override fun televisionDestination(): Intent? {
         val isTelevision = resources.configuration.uiMode and Configuration.UI_MODE_TYPE_MASK == Configuration.UI_MODE_TYPE_TELEVISION
-        return if (isTelevision) Intent(this, TvMainActivity::class.java) else null
+        // PattNG: with the extras of the intent, so that an import's refresh (EXTRA_REFRESH_AFTER_IMPORT) reaches an open
+        // TV screen too, as it does the phone one.
+        return if (isTelevision) Intent(this, TvMainActivity::class.java).putExtras(intent) else null
     }
 
     @Composable

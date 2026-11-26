@@ -4,6 +4,14 @@ import android.content.Intent
 import android.os.Bundle
 import android.webkit.WebView
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.sp
+import com.v2ray.ang.ui.compose.MatixLogo
+import com.v2ray.ang.ui.compose.glassCard
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -82,6 +90,32 @@ fun AboutScreen(
                 .padding(innerPadding)
                 .verticalScroll(rememberScrollState())
         ) {
+            // Matix net: opens with "In the name of God" and a short account of how the app was built.
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .glassCard(accent = true)
+                    .padding(18.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                MatixLogo(size = 72.dp, interactive = true)
+                Spacer(Modifier.height(14.dp))
+                Text(
+                    text = stringResource(R.string.matix_about_bismillah),
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = stringResource(R.string.matix_about_body),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 14.sp,
+                    lineHeight = 23.sp,
+                    textAlign = TextAlign.Center
+                )
+            }
             SettingsMenuItem(
                 icon = painterResource(R.drawable.ic_source_code_24dp),
                 title = stringResource(R.string.title_source_code),
@@ -91,6 +125,14 @@ fun AboutScreen(
                 icon = painterResource(R.drawable.license_24px),
                 title = stringResource(R.string.title_oss_license),
                 onClick = { showOssDialog = true }
+            )
+            // The Aether binary is not a Gradle dependency, so the generated license report
+            // cannot list it; its AGPL-3.0 notice and source link live here instead.
+            SettingsMenuItem(
+                icon = painterResource(R.drawable.license_24px),
+                title = stringResource(R.string.title_aether_core),
+                subtitle = stringResource(R.string.summary_aether_core),
+                onClick = { Utils.openUri(context, AppConfig.AETHER_URL) }
             )
             SettingsMenuItem(
                 icon = painterResource(R.drawable.ic_translate_24dp),
@@ -102,11 +144,7 @@ fun AboutScreen(
                 title = stringResource(R.string.title_pref_feedback),
                 onClick = { Utils.openUri(context, AppConfig.APP_ISSUES_URL) }
             )
-            SettingsMenuItem(
-                icon = painterResource(R.drawable.ic_telegram_24dp),
-                title = stringResource(R.string.title_tg_channel),
-                onClick = { Utils.openUri(context, AppConfig.TG_CHANNEL_URL) }
-            )
+            // PattNG: the Telegram channel is in the main drawer, in the place of upstream's Promotion.
             SettingsMenuItem(
                 icon = painterResource(R.drawable.ic_privacy_24dp),
                 title = stringResource(R.string.title_privacy_policy),

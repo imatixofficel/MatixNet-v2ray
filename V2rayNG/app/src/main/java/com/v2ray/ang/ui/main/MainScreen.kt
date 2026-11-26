@@ -7,6 +7,13 @@ import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+import com.v2ray.ang.ui.compose.glassCard
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.DrawerValue
@@ -28,11 +35,15 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.v2ray.ang.R
 import com.v2ray.ang.dto.entities.ProfileItem
+import com.v2ray.ang.extension.toastError
 import com.v2ray.ang.ui.compose.LocalDarkTheme
 import com.v2ray.ang.ui.compose.QRCodeDialog
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -54,6 +65,18 @@ fun MainScreen(
     val confirmRemove = uiState.confirmRemove
     val shareQRCodeBitmap = uiState.shareQRCodeBitmap
 
+    // PattNG: a move of a profile the storage refused is told once, each refusal by its number, so that one set again
+    // right after the last was told is told too; the groups are shown anew, as stored.
+    val context = LocalContext.current
+    val failureText = stringResource(R.string.toast_failure)
+    val moveRefusal = uiState.moveRefusal
+    LaunchedEffect(moveRefusal) {
+        if (moveRefusal != null) {
+            context.toastError(failureText)
+            onAction(MainAction.MoveRefusalShown(moveRefusal))
+        }
+    }
+
     val isDarkTheme = LocalDarkTheme.current
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -65,6 +88,7 @@ fun MainScreen(
     var showRemoveConfirm by rememberSaveable(stateSaver = ServerDeleteTarget.Saver) {
         mutableStateOf<ServerDeleteTarget?>(null)
     }
+    var showDonate by rememberSaveable { mutableStateOf(false) }
 
     var shareTarget by remember { mutableStateOf<Triple<String, ProfileItem, Boolean>?>(null) }
     val removeServer: (String, String) -> Unit = { guid, profileName ->
@@ -116,7 +140,11 @@ fun MainScreen(
         onConfirmDelInvalid = { showDelInvalidConfirm = false; onAction(MainAction.RemoveInvalidServers) },
         showRemoveConfirm = showRemoveConfirm,
         onDismissRemove = { showRemoveConfirm = null },
-        onConfirmRemove = { guid -> showRemoveConfirm = null; onAction(MainAction.RemoveServer(guid)) }
+        onConfirmRemove = { guid -> showRemoveConfirm = null; onAction(MainAction.RemoveServer(guid)) },
+        showDonate = showDonate,
+        onDismissDonate = { showDonate = false },
+        onCopyDonationAddress = { address -> onAction(MainAction.CopyDonationAddress(address)) },
+        onOpenAuthorTelegram = { onAction(MainAction.OpenAuthorTelegram) }
     )
 
     if (shareTarget != null) {
@@ -142,11 +170,18 @@ fun MainScreen(
                 onNavigate = { route ->
                     scope.launch { drawerState.close() }
                     onNavigate(route)
+                },
+                onToggleTheme = { onAction(MainAction.ToggleTheme) },
+                onToggleLanguage = { onAction(MainAction.ToggleLanguage) },
+                onBuy = {
+                    scope.launch { drawerState.close() }
+                    onAction(MainAction.BuySubscription)
                 }
             )
         }
     ) {
         Scaffold(
+            containerColor = androidx.compose.ui.graphics.Color.Transparent,
             contentWindowInsets = ScaffoldDefaults.contentWindowInsets,
             topBar = {
                 MainTopBar(
@@ -183,68 +218,94 @@ fun MainScreen(
             val bottomBarHeight = with(LocalDensity.current) { bottomBarHeightPx.toDp() }
 
             Box(Modifier.fillMaxSize()) {
-            if (groups.isNotEmpty()) {
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        // No bottom padding: the lists run behind the floating connection bar.
+                        // No bottom padding: the list card runs down behind the bottom panel.
                         .padding(
                             start = innerPadding.calculateStartPadding(layoutDirection),
                             top = innerPadding.calculateTopPadding(),
                             end = innerPadding.calculateEndPadding(layoutDirection)
                         )
                 ) {
-                    if (groups.size > 1) {
-                        GroupTabBar(
-                            groups = groups,
-                            selectedTabIndex = pagerState.currentPage.coerceIn(0, groups.lastIndex),
-                            mainViewModel = mainViewModel,
-                            onTabClick = { targetIndex ->
-                                scope.launch {
-                                    pagerState.navigateToPageOptimized(
-                                        targetPage = targetIndex,
-                                        animateAdjacentPage = true
-                                    )
-                                }
+                    // Matix net: the logo and the connection status at the top, like the home of an iPhone app.
+                    MainConnectHero(
+                        displayText = displayText,
+                        isRunning = isRunning,
+                        onAction = onAction,
+                        modifier = Modifier.padding(top = 4.dp, bottom = 10.dp)
+                    )
+                    if (groups.isNotEmpty()) {
+                        Text(
+                            text = stringResource(R.string.matix_servers),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(start = 28.dp, end = 28.dp, bottom = 6.dp)
+                        )
+                        // The servers sit in one rounded inset card, like a grouped list in iOS settings.
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp)
+                                .glassCard(shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp))
+                        ) {
+                            if (groups.size > 1) {
+                                GroupTabBar(
+                                    groups = groups,
+                                    selectedTabIndex = pagerState.currentPage.coerceIn(0, groups.lastIndex),
+                                    mainViewModel = mainViewModel,
+                                    onTabClick = { targetIndex ->
+                                        scope.launch {
+                                            pagerState.navigateToPageOptimized(
+                                                targetPage = targetIndex,
+                                                animateAdjacentPage = true
+                                            )
+                                        }
+                                    }
+                                )
                             }
-                        )
-                    }
 
-                    HorizontalPager(
-                        state = pagerState,
-                        modifier = Modifier.fillMaxSize(),
-                        userScrollEnabled = true,
-                        beyondViewportPageCount = 1,
-                        key = { page -> groups.getOrNull(page)?.id ?: "group-page-$page" }
-                    ) { page ->
-                        val group = groups.getOrNull(page) ?: return@HorizontalPager
+                            HorizontalPager(
+                                state = pagerState,
+                                modifier = Modifier.fillMaxSize(),
+                                userScrollEnabled = true,
+                                beyondViewportPageCount = 1,
+                                key = { page -> groups.getOrNull(page)?.id ?: "group-page-$page" }
+                            ) { page ->
+                                val group = groups.getOrNull(page) ?: return@HorizontalPager
 
-                        GroupPagerPage(
-                            groupId = group.id,
-                            mainViewModel = mainViewModel,
-                            selectedGuid = selectedGuid,
-                            locateTarget = uiState.locateTarget,
-                            doubleColumnDisplay = doubleColumnDisplay,
-                            searchQuery = searchQuery,
-                            onSelectServer = { guid -> onAction(MainAction.SelectServer(guid)) },
-                            onEditServer = { guid, profile -> onAction(MainAction.EditServer(guid, profile)) },
-                            onShareServer = { guid, profile ->
-                                shareTarget = Triple(guid, profile, false)
-                            },
-                            onMoreServer = { guid, profile ->
-                                shareTarget = Triple(guid, profile, true)
-                            },
-                            onRemoveServer = removeServer,
-                            contentPadding = PaddingValues(
-                                start = 0.dp,
-                                top = 0.dp,
-                                end = 0.dp,
-                                bottom = bottomBarHeight + 8.dp
-                            )
-                        )
+                                GroupPagerPage(
+                                    groupId = group.id,
+                                    mainViewModel = mainViewModel,
+                                    selectedGuid = selectedGuid,
+                                    locateTarget = uiState.locateTarget,
+                                    doubleColumnDisplay = doubleColumnDisplay,
+                                    searchQuery = searchQuery,
+                                    onSelectServer = { guid -> onAction(MainAction.SelectServer(guid)) },
+                                    onEditServer = { guid, profile -> onAction(MainAction.EditServer(guid, profile)) },
+                                    onShareServer = { guid, profile ->
+                                        shareTarget = Triple(guid, profile, false)
+                                    },
+                                    onMoreServer = { guid, profile ->
+                                        shareTarget = Triple(guid, profile, true)
+                                    },
+                                    onRemoveServer = removeServer,
+                                    usageInfo = group.usageInfo,
+                                    groupTitle = group.remarks,
+                                    onOpenLink = { url -> onAction(MainAction.OpenSubscriptionLink(url)) },
+                                    contentPadding = PaddingValues(
+                                        start = 0.dp,
+                                        top = 0.dp,
+                                        end = 0.dp,
+                                        bottom = bottomBarHeight + 8.dp
+                                    )
+                                )
+                            }
+                        }
                     }
                 }
-            }
             MainBottomBar(
                 displayText = displayText,
                 isRunning = isRunning,

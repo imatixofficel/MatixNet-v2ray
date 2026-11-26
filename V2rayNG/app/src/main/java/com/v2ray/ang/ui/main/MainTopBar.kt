@@ -1,5 +1,21 @@
 package com.v2ray.ang.ui.main
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.Text
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
+import com.v2ray.ang.ui.compose.LocalDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -47,72 +63,113 @@ fun MainTopBar(
     val navBarHeight = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val maxMenuHeight = LocalConfiguration.current.screenHeightDp.dp - statusBarHeight - navBarHeight - 20.dp
 
-    AppTopBar(
-        title = stringResource(R.string.title_server),
-        onBackClick = {},
-        isLoading = isLoading,
-        isSearchActive = showSearch,
-        searchQuery = searchQuery,
-        onSearchQueryChange = onSearchQueryChange,
-        onSearchClose = onSearchClose,
-        searchPlaceholder = stringResource(R.string.menu_item_search),
-        navigationIcon = {
-            if (showSearch) {
+    val dark = LocalDarkTheme.current
+    val menuDirection = LocalLayoutDirection.current
+    if (showSearch) {
+        AppTopBar(
+            title = stringResource(R.string.title_server),
+            onBackClick = {},
+            isLoading = isLoading,
+            isSearchActive = true,
+            searchQuery = searchQuery,
+            onSearchQueryChange = onSearchQueryChange,
+            onSearchClose = onSearchClose,
+            searchPlaceholder = stringResource(R.string.menu_item_search),
+            navigationIcon = {
                 IconButton(onClick = onSearchClose) {
                     Icon(painterResource(R.drawable.ic_arrow_back_24dp), contentDescription = stringResource(R.string.acc_back))
                 }
-            } else {
-                IconButton(onClick = onMenuClick) {
-                    Icon(painterResource(R.drawable.ic_menu_24dp), contentDescription = stringResource(R.string.acc_open_menu))
-                }
             }
-        },
-        actions = {
-            if (!showSearch) {
-                IconButton(onClick = { onSearchToggle(true) }) {
-                    Icon(painterResource(R.drawable.ic_search_24dp), contentDescription = stringResource(R.string.acc_search))
-                }
-            }
-            Box(modifier = Modifier.wrapContentSize(Alignment.TopEnd)) {
-                IconButton(onClick = { showImportMenu = true }) {
-                    Icon(painterResource(R.drawable.ic_add_24dp), contentDescription = stringResource(R.string.acc_add))
-                }
-                DropdownMenu(
-                    expanded = showImportMenu,
-                    onDismissRequest = { showImportMenu = false },
-                    scrollState = importMenuScrollState,
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    modifier = Modifier
-                        .heightIn(max = maxMenuHeight)
-                        .verticalScrollbar(importMenuScrollState)
-                ) {
-                    ImportMenuContent(
-                        onAction = { action ->
-                            showImportMenu = false
-                            onAction(action)
-                        }
+        )
+        return
+    }
+
+    // Matix net: an iOS-style header over the backdrop: the menu and the app name on the left, the search, scan, add and
+    // more buttons on the right, in every language, so the layout is the same in Persian and in English.
+    Column(Modifier.fillMaxWidth().statusBarsPadding()) {
+        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onMenuClick, modifier = Modifier.size(40.dp)) {
+                        Icon(painterResource(R.drawable.ic_menu_24dp), contentDescription = stringResource(R.string.acc_open_menu))
+                    }
+                    Text(
+                        text = stringResource(R.string.app_name),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        modifier = Modifier.padding(start = 4.dp)
                     )
                 }
-            }
-            Box(modifier = Modifier.wrapContentSize(Alignment.TopEnd)) {
-                IconButton(onClick = { showMenu = true }) {
-                    Icon(painterResource(R.drawable.ic_more_vert_24dp), contentDescription = stringResource(R.string.acc_more))
-                }
-                DropdownMenu(
-                    expanded = showMenu,
-                    onDismissRequest = { showMenu = false },
-                    scrollState = moreMenuScrollState,
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    modifier = Modifier
-                        .heightIn(max = maxMenuHeight)
-                        .verticalScrollbar(moreMenuScrollState)
-                ) {
-                    MoreMenuContent { action ->
-                        showMenu = false
-                        onMoreMenuAction(action)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { onSearchToggle(true) }, modifier = Modifier.size(40.dp)) {
+                        Icon(painterResource(R.drawable.ic_search_24dp), contentDescription = stringResource(R.string.acc_search))
+                    }
+                    IconButton(onClick = { onAction(MainAction.ImportQRcode) }, modifier = Modifier.size(40.dp)) {
+                        Icon(
+                            painterResource(R.drawable.ic_qu_scan_24dp),
+                            contentDescription = stringResource(R.string.matix_scan),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    Box(modifier = Modifier.wrapContentSize(Alignment.TopEnd)) {
+                        IconButton(onClick = { showImportMenu = true }, modifier = Modifier.size(40.dp)) {
+                            Icon(painterResource(R.drawable.ic_add_24dp), contentDescription = stringResource(R.string.acc_add))
+                        }
+                        DropdownMenu(
+                            expanded = showImportMenu,
+                            onDismissRequest = { showImportMenu = false },
+                            scrollState = importMenuScrollState,
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            modifier = Modifier
+                                .heightIn(max = maxMenuHeight)
+                                .verticalScrollbar(importMenuScrollState)
+                        ) {
+                            CompositionLocalProvider(LocalLayoutDirection provides menuDirection) {
+                                ImportMenuContent(
+                                    onAction = { action ->
+                                        showImportMenu = false
+                                        onAction(action)
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    Box(modifier = Modifier.wrapContentSize(Alignment.TopEnd)) {
+                        IconButton(onClick = { showMenu = true }, modifier = Modifier.size(40.dp)) {
+                            Icon(painterResource(R.drawable.ic_more_vert_24dp), contentDescription = stringResource(R.string.acc_more))
+                        }
+                        DropdownMenu(
+                            expanded = showMenu,
+                            onDismissRequest = { showMenu = false },
+                            scrollState = moreMenuScrollState,
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            modifier = Modifier
+                                .heightIn(max = maxMenuHeight)
+                                .verticalScrollbar(moreMenuScrollState)
+                        ) {
+                            CompositionLocalProvider(LocalLayoutDirection provides menuDirection) {
+                                MoreMenuContent { action ->
+                                    showMenu = false
+                                    onMoreMenuAction(action)
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
-    )
+        if (isLoading) {
+            LinearProgressIndicator(
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.primary
+            )
+        }
+    }
 }

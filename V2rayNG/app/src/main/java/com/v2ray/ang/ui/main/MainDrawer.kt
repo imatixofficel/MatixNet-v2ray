@@ -4,6 +4,8 @@ import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Spacer
+import com.v2ray.ang.ui.compose.MatixLogo
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -23,15 +25,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.v2ray.ang.R
 import com.v2ray.ang.ui.compose.AppDivider
-import com.v2ray.ang.ui.compose.LocalDarkTheme
 import com.v2ray.ang.ui.compose.verticalScrollbar
 
 enum class MainDestination(@DrawableRes val iconRes: Int, @StringRes val labelRes: Int) {
@@ -40,7 +38,8 @@ enum class MainDestination(@DrawableRes val iconRes: Int, @StringRes val labelRe
     Routing(R.drawable.ic_routing_24dp, R.string.routing_settings_title),
     UserAssets(R.drawable.ic_file_24dp, R.string.title_user_asset_setting),
     Settings(R.drawable.ic_settings_24dp, R.string.title_settings),
-    Promotion(R.drawable.ic_promotion_24dp, R.string.title_pref_promotion),
+    // PattNG: the PattNG Telegram channel, moved here from About, takes the place of upstream's Promotion.
+    TelegramChannel(R.drawable.ic_telegram_24dp, R.string.title_tg_channel),
     Logcat(R.drawable.ic_logcat_24dp, R.string.title_logcat),
     CheckUpdate(R.drawable.ic_check_update_24dp, R.string.update_check_for_update),
     BackupRestore(R.drawable.ic_restore_24dp, R.string.title_configuration_backup_restore),
@@ -56,7 +55,7 @@ internal val primaryDrawerItems = listOf(
 )
 
 internal val drawerItems = primaryDrawerItems + listOf(
-    MainDestination.Promotion,
+    MainDestination.TelegramChannel,
     MainDestination.Logcat,
     MainDestination.CheckUpdate,
     MainDestination.BackupRestore,
@@ -64,7 +63,13 @@ internal val drawerItems = primaryDrawerItems + listOf(
 )
 
 @Composable
-fun MainDrawerContent(drawerState: DrawerState, onNavigate: (MainDestination) -> Unit) {
+fun MainDrawerContent(
+    drawerState: DrawerState,
+    onNavigate: (MainDestination) -> Unit,
+    onToggleTheme: () -> Unit = {},
+    onToggleLanguage: () -> Unit = {},
+    onBuy: () -> Unit = {}
+) {
     val drawerScrollState = rememberScrollState()
 
     ModalDrawerSheet(
@@ -89,17 +94,9 @@ fun MainDrawerContent(drawerState: DrawerState, onNavigate: (MainDestination) ->
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-                    val isDarkTheme = LocalDarkTheme.current
-                    Image(
-                        painter = painterResource(R.mipmap.ic_launcher_foreground),
-                        contentDescription = null,
-                        modifier = Modifier.size(120.dp),
-                        colorFilter = if (isDarkTheme) {
-                            ColorFilter.tint(Color.White, BlendMode.SrcIn)
-                        } else {
-                            null
-                        }
-                    )
+                    // Matix net: the drawn logo; a tap makes it spin and bounce.
+                    MatixLogo(size = 96.dp, interactive = true)
+                    Spacer(Modifier.height(10.dp))
                     Text(
                         text = stringResource(R.string.app_name),
                         style = MaterialTheme.typography.titleLarge,
@@ -107,6 +104,29 @@ fun MainDrawerContent(drawerState: DrawerState, onNavigate: (MainDestination) ->
                     )
                 }
             }
+            // Matix net: the quick switches live here now, to keep the home screen clean.
+            NavigationDrawerItem(
+                label = { Text(stringResource(R.string.matix_buy_sub)) },
+                selected = false,
+                onClick = onBuy,
+                icon = { Icon(painterResource(R.drawable.ic_telegram_24dp), contentDescription = null) },
+                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+            )
+            NavigationDrawerItem(
+                label = { Text(stringResource(R.string.matix_toggle_theme)) },
+                selected = false,
+                onClick = onToggleTheme,
+                icon = { Icon(painterResource(R.drawable.ic_moon_24dp), contentDescription = null) },
+                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+            )
+            NavigationDrawerItem(
+                label = { Text(stringResource(R.string.matix_toggle_language)) },
+                selected = false,
+                onClick = onToggleLanguage,
+                icon = { Icon(painterResource(R.drawable.ic_translate_24dp), contentDescription = null) },
+                modifier = Modifier.padding(NavigationDrawerItemDefaults.ItemPadding)
+            )
+            AppDivider()
             drawerItems.forEachIndexed { index, item ->
                 if (index == primaryDrawerItems.size) AppDivider()
                 NavigationDrawerItem(

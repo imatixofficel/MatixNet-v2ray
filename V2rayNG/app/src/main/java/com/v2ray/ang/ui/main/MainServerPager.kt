@@ -3,6 +3,8 @@ package com.v2ray.ang.ui.main
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import com.v2ray.ang.ui.compose.FlagIcon
+import com.v2ray.ang.ui.compose.glassCard
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -55,10 +57,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Color
 import com.v2ray.ang.R
 import com.v2ray.ang.dto.LocateTarget
 import com.v2ray.ang.dto.entities.ProfileItem
-import com.v2ray.ang.ui.compose.ItemDivider
+import com.v2ray.ang.dto.entities.SubscriptionUsageInfo
 import com.v2ray.ang.ui.compose.ReorderableGridItem
 import com.v2ray.ang.ui.compose.ReorderableListItem
 import com.v2ray.ang.ui.compose.colorConfigType
@@ -83,6 +89,9 @@ fun GroupPagerPage(
     onShareServer: (String, ProfileItem) -> Unit,
     onMoreServer: (String, ProfileItem) -> Unit,
     onRemoveServer: (String, String) -> Unit,
+    usageInfo: SubscriptionUsageInfo?,
+    groupTitle: String,
+    onOpenLink: (String) -> Unit,
     contentPadding: PaddingValues
 ) {
     val groupStateFlow = remember(groupId) {
@@ -106,20 +115,47 @@ fun GroupPagerPage(
             remove = onRemoveServer,
         )
     }
+    // The box floats over the list (the list scrolls underneath it), so the list is padded by the box height.
+    val density = LocalDensity.current
+    val layoutDirection = LocalLayoutDirection.current
+    var infoHeightPx by remember { mutableIntStateOf(0) }
+    val listPadding = if (usageInfo == null) {
+        contentPadding
+    } else {
+        PaddingValues(
+            start = contentPadding.calculateStartPadding(layoutDirection),
+            top = contentPadding.calculateTopPadding() + with(density) { infoHeightPx.toDp() },
+            end = contentPadding.calculateEndPadding(layoutDirection),
+            bottom = contentPadding.calculateBottomPadding()
+        )
+    }
 
-    ServerListPage(
-        rows = groupState.rows,
-        selectedGuid = selectedGuid,
-        locateTarget = groupLocateTarget,
-        canReorder = canReorder,
-        doubleColumnDisplay = doubleColumnDisplay,
-        actions = actions,
-        onLocateHandled = { groupLocateTarget?.let { mainViewModel.onAction(MainAction.LocateHandled(it)) } },
-        onMoveServer = { from, to ->
-            mainViewModel.onAction(MainAction.MoveServer(groupId, from, to))
-        },
-        contentPadding = contentPadding
-    )
+    Box(Modifier.fillMaxSize()) {
+        ServerListPage(
+            rows = groupState.rows,
+            selectedGuid = selectedGuid,
+            locateTarget = groupLocateTarget,
+            canReorder = canReorder,
+            doubleColumnDisplay = doubleColumnDisplay,
+            actions = actions,
+            onLocateHandled = { groupLocateTarget?.let { mainViewModel.onAction(MainAction.LocateHandled(it)) } },
+            onMoveServer = { from, to ->
+                mainViewModel.onAction(MainAction.MoveServer(groupId, from, to))
+            },
+            contentPadding = listPadding
+        )
+        if (usageInfo != null) {
+            SubscriptionInfoCard(
+                info = usageInfo,
+                fallbackTitle = groupTitle,
+                onOpenLink = onOpenLink,
+                onRefresh = { mainViewModel.onAction(MainAction.UpdateGroupSubscription(groupId)) },
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .onSizeChanged { infoHeightPx = it.height }
+            )
+        }
+    }
 }
 
 private class ServerRowActions(
@@ -225,7 +261,6 @@ private fun ServerListPage(
                                     actions = actions
                                 )
                             }
-                            ItemDivider()
                         }
                     }
                 } else {
@@ -234,7 +269,6 @@ private fun ServerListPage(
                         isSelected = row.guid == selectedGuid,
                         actions = actions
                     )
-                    ItemDivider()
                 }
             }
         }
@@ -301,10 +335,10 @@ private fun ServerItemColumn(
             doubleColumnDisplay = doubleColumnDisplay,
             actions = actions
         )
-        ItemDivider()
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ServerListItem(
     row: ServerRowUiModel,
@@ -325,13 +359,21 @@ private fun ServerListItem(
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            // Matix net: every server is a clean rounded row, the selected one tinted blue.
+            .padding(horizontal = 8.dp, vertical = 3.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f) else Color.Transparent)
             .height(IntrinsicSize.Min)
             .semantics {
                 if (selectedStateDescription != null) {
                     stateDescription = selectedStateDescription
                 }
             }
-            .clickable { actions.select(row.guid) }
+            // A tap picks the server; a long press opens the more menu (share, edit, delete).
+            .combinedClickable(
+                onClick = { actions.select(row.guid) },
+                onLongClick = { actions.more(row.guid, row.profile) }
+            )
     ) {
         Box(
             Modifier
@@ -358,34 +400,14 @@ private fun ServerListItem(
                 .padding(start = 8.dp, end = 12.dp, top = 8.dp, bottom = 8.dp)
         ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                // Matix net: the flag of the server's country, or a globe, before its name.
+                FlagIcon(row.remarks, Modifier.padding(end = 10.dp))
                 Text(row.remarks, Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge.copy(lineBreak = LineBreak.Paragraph), maxLines = 2, overflow = TextOverflow.Ellipsis)
                 if (doubleColumnDisplay) {
                     IconButton(onClick = { actions.more(row.guid, row.profile) }, Modifier.size(36.dp)) {
                         Icon(
                             painterResource(R.drawable.ic_more_vert_24dp),
                             stringResource(R.string.acc_more),
-                            Modifier.size(24.dp)
-                        )
-                    }
-                } else {
-                    IconButton(onClick = { actions.share(row.guid, row.profile) }, Modifier.size(36.dp)) {
-                        Icon(
-                            painterResource(R.drawable.ic_share_24dp),
-                            stringResource(R.string.title_configuration_share),
-                            Modifier.size(24.dp)
-                        )
-                    }
-                    IconButton(onClick = { actions.edit(row.guid, row.profile) }, Modifier.size(36.dp)) {
-                        Icon(
-                            painterResource(R.drawable.ic_edit_24dp),
-                            stringResource(R.string.acc_edit),
-                            Modifier.size(24.dp)
-                        )
-                    }
-                    IconButton(onClick = { actions.remove(row.guid, row.remarks) }, Modifier.size(36.dp)) {
-                        Icon(
-                            painterResource(R.drawable.ic_delete_24dp),
-                            stringResource(R.string.acc_delete),
                             Modifier.size(24.dp)
                         )
                     }
@@ -414,14 +436,6 @@ private fun ServerListItem(
             }
             Spacer(modifier = Modifier.height(6.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(
-                    row.typeDescription,
-                    modifier = Modifier.weight(1f, fill = false),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = colorConfigType,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     testResult,
